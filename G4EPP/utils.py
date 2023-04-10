@@ -40,7 +40,7 @@ class FileReader(EPP_Exception_Handler):
         super().__init__(runList, energyDistList)
 
         # Load in pkl data table 
-        self.D = pickle.load(open(self.data_path + "G4data_mono_discretePAD.pkl", "rb"))
+        self.D = pickle.load(open(self.data_path + "G4data_mono_discretePAD_test.pkl", "rb"))
 
 
         self.runList        = runList
@@ -70,16 +70,20 @@ class FileReader(EPP_Exception_Handler):
 
     def _get_ionization_table(self):
         
-        table = np.zeros([500, 10, 15]);
+        table = np.zeros([500, len(self.runList), len(self.PAlist)]);
 
         for ind1, ene in enumerate(self.runList):
             for ind2, pa in enumerate(self.PAlist):
                 table[:, ind1, ind2] = self.D[('electron', 'ioni', ene, pa)][0] + \
-                                       self.D[('photon', 'ioni', ene, pa)][0]
+                                       self.D[('photon', 'ioni', ene, pa)][0] / 100
 
 
 
         return table 
+
+    def _get_all_data(self): 
+        return self.D
+
 
 class EnergyDistributions:
     def __init__(self, Nsamples):

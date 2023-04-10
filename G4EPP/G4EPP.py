@@ -18,7 +18,7 @@ from utils import FileReader, EnergyDistributions
 # Globals
 Earray = np.round(np.logspace(np.log10(0.250), np.log10(10000), 100), 2)
 h      = np.linspace(0, 499, 500);
-runList = np.array([10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000])
+runList = np.array([10, 14, 20, 32, 50, 71, 100, 141, 200, 316, 500, 707, 1000, 1414, 2000, 3162, 5000, 7071, 10000])
 energyDistList = ["mono", "exp"]
 PAlist   = np.arange(0, 70+5, 5);
 
@@ -166,6 +166,8 @@ class api(FileReader):
     def get_all_ionization_profiles(self):
         return self._get_ionization_table()
 
+    def get_all_data(self):
+        return self._get_all_data()
 
     def get_spectral_profile(self, energyDist, energy, flux, pitchAngle, particle=None):
 
