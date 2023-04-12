@@ -1,8 +1,6 @@
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
-from collections import OrderedDict
-
 import numpy as np
 import pandas as pd
 import scipy as sci
@@ -12,15 +10,19 @@ import seaborn as sns
 sns.set_theme(font_scale=1.5);
 
 from scipy.optimize import curve_fit
+from scipy.optimize import minimize
 
 from utils import FileReader, EnergyDistributions
 
 # Globals
-Earray = np.round(np.logspace(np.log10(0.250), np.log10(10000), 100), 2)
-h      = np.linspace(0, 499, 500);
-runList = np.array([10, 14, 20, 32, 50, 71, 100, 141, 200, 316, 500, 707, 1000, 1414, 2000, 3162, 5000, 7071, 10000])
-energyDistList = ["mono", "exp"]
-PAlist   = np.arange(0, 70+5, 5);
+Earray  = np.round(np.logspace(np.log10(0.250), np.log10(10000), 100), 2)
+
+h       = np.arange(0, 500);
+
+runList = np.array([10, 14, 20, 32, 50, 71, 100, 141, 200, 316, 500, 
+                    707, 1000, 1414, 2000, 3162, 5000, 7071, 10000])
+
+PAlist  = np.arange(0, 70+5, 5);
 
 
 class api(FileReader):
@@ -28,55 +30,29 @@ class api(FileReader):
 
         # Altitude array abscissa
         self.h = h 
+        
         # Energy array abscissa
         self.Earray = Earray 
-
         
+        # Delta E
         self.binWidth = np.hstack([np.diff(self.Earray), np.diff(self.Earray)[-1]])
 
-
         self.runList        = runList
-        self.energyDistList = energyDistList
         self.PAlist         = PAlist
 
 
-        super().__init__(self.Earray, self.runList, self.PAlist, self.energyDistList)
+        super().__init__(self.Earray, self.runList, self.PAlist)
 
         self.X_energy, self.Y_altitude = np.meshgrid(self.Earray, self.h)
-        
-    def plot_ionization_profile(self, energyDist, energy, flux, pitchAngle, particle=None):
-
-        self._validateInputs(energyDist, energy)
-
-        mean, std = self._readInData(energyDist, energy, "ioni", pitchAngle, particle)
-
-        if energyDist == "exp":
-            t = "Exponential"
-        elif energyDist == "mono":
-            t = "Monoenergetic"
-        
-        plt.semilogx(flux * mean, self.h)
-        plt.fill_betweenx(self.h, flux * (mean - std), 
-                                  flux * (mean + std), 
-                                  alpha=0.5, 
-                                  label='$\pm \sigma$')
     
-        plt.xlabel("Deposited Energy [keV km$^{-1}$]");
-        plt.ylabel("Altitude [km]");
-
-        plt.ylim(0, 300);
-        plt.grid(True, which='both')
-        
-        plt.title("Ionization Profile\n" + str(energy) + " keV " + t + " Distribution")
-        
-        return mean
-
     def plot_spectral_profile(self, energyDist, energy, flux, pitchAngle, particle=None):
 
         self._validateInputs(energyDist, energy)
         
         sp_mean, sp_std = self._readInData(energyDist, energy, "spectra", pitchAngle, particle)
-        
+      
+        sp_mean
+
         if energyDist == "exp":
             t = "Exponential"
         elif energyDist == "mono":
@@ -98,83 +74,55 @@ class api(FileReader):
 
         return sp_mean 
 
-    def plot_example(self, energyDist, energy, flux, pitchAngle, particle=None):
 
-        self._validateInputs(energyDist, energy)
+    def plot_ionization_profile(self, energyDistribution, 
+                                      pitchAngleDistribution,
+                                      flux):
+
+
+        result, norm = self._formGreensFunctionSpectrum(energyDistribution, 
+                                                        pitchAngleDistribution, 
+                                                        flux,
+                                                        'ioni')
+
+        # Normalize to unity
+        result /= np.trapz(result, x=1e5 * self.h)
         
-        mean, std       = self._readInData(energyDist, energy, "ioni", pitchAngle, particle)
-        sp_mean, sp_std = self._readInData(energyDist, energy, "spectra", pitchAngle, particle)
-        
-        if energyDist == "exp":
-            t = "Exponential"
-        elif energyDist == "mono":
-            t = "Monoenergetic"
+        # Make it integrate to what it should be
+        result *= (norm/35)
        
-        plt.figure(figsize=(14,8))
-        plt.subplot(1,2,1)
-        plt.semilogx(mean * flux, self.h)
-        plt.fill_betweenx(self.h, flux * (mean - std), flux * (mean + std), 
-                                  alpha=0.5, 
-                                  label='$\pm \sigma$')
+        # Plot on current figure
+        plt.semilogx(result, self.h)
     
-        plt.xlabel("Deposited Energy [keV km$^{-1}$]");
+        plt.xlabel("Ionization Rate [cm$^{-3}$ s$^{-1}$]");
         plt.ylabel("Altitude [km]");
 
         plt.ylim(0, 300);
         plt.grid(True, which='both')
-        
-        plt.title("Ionization Profile\n" + str(energy) + " keV " + t + " Distribution")
+       
+        return result
 
-        ######
-
-        plt.subplot(1,2,2)
-        p = plt.pcolormesh(self.X_energy, self.Y_altitude, flux * sp_mean, norm=LogNorm())
-
-        plt.colorbar(p, label='Flux [cm$^{-2}$ s$^{-1}$ sr$^{-1}$ keV$^{-1}$]')
-
-        plt.xlabel('Energy [keV]')
-        
-        plt.xscale('log')
-        plt.ylim(0, 300)
-
-        plt.grid(True, which='both')
-
-        plt.title("Spectral Profile\n" + str(energy) + " keV " + t + " Distribution")
-    
-    def plot_all_ionization_profiles(self, energyDist, flux, pitchAngle, particle=None):
-
-        for item in self.runList:
-            mean, std = self._readInData(energyDist, item, "ioni", pitchAngle, particle)
-
-            plt.semilogx(flux * mean / item,  self.h, label='%.0f keV' % item)
-
-    
-        plt.xlabel("Deposited Energy [keV km$^{-1}$ keV$^{-1}$ / (cm$^{-2}$ s$^{-1}$ sr$^{-1}$)]");
-        plt.ylabel("Altitude [km]");
-        plt.legend()
-
-        plt.ylim(0, 300);
-        plt.grid(True, which='both')
-        
     # Getter methods
-    def get_ionization_profile(self, energyDist, energy, flux, pitchAngle, particle=None):
+    '''
+    def get_ionization_profile(self, energy, flux, pitchAngle, particle=None):
       
-        self._validateInputs(energyDist, energy)
+        self._validateInputs(energy)
 
-        return flux * np.array(self._readInData(energyDist, energy, "ioni", pitchAngle, particle))
-
+        return flux * np.array(self._readInData(energy, "ioni", pitchAngle, particle))
+    '''
     def get_all_ionization_profiles(self):
         return self._get_ionization_table()
 
     def get_all_data(self):
         return self._get_all_data()
 
+    '''
     def get_spectral_profile(self, energyDist, energy, flux, pitchAngle, particle=None):
 
         self._validateInputs(energyDist, energy)
 
         return flux * np.array(self._readInData(energyDist, energy, "spectra", pitchAngle, particle))
-    
+    '''
     def get_altitude_array(self):
         return self.h
 
@@ -203,11 +151,30 @@ class XrayAnalysis(FileReader):
         # Import globals
         self.Earray         = Earray
         self.runList        = runList
-        self.energyDistList = energyDistList
+        self.PAlist         = PAlist 
+
+        self.dE = np.hstack([np.diff(Earray), np.diff(Earray)[-1]])
+        self.EbinCenters = self.Earray + self.dE
 
         # Send them up
-        super().__init__(self.Earray, self.runList, self.energyDistList)
+        super().__init__(self.Earray, self.runList, self.PAlist)
 
+
+    def getSpectrumAtAltitude(self, energyDistribution, pitchAngleDistribution, flux, altitudeRange):
+
+        result, norm = self._formGreensFunctionSpectrum(energyDistribution, 
+                                                        pitchAngleDistribution, 
+                                                        flux,
+                                                        'spectra',
+                                                        'photon')
+
+        spectrum = norm * np.mean(result[altitudeRange[0]:altitudeRange[1],:], axis=0)
+
+        # Return spectrum with units cm^-2 s^-1 sr^-1 keV^-1
+        return spectrum / self.EbinCenters
+
+    
+    '''
     def getXraysAtAltitude(self, energyDist, energy, flux, altitude):
         
         mean, std = self._readInData(energyDist, energy, "spectra", "photon")
@@ -229,6 +196,8 @@ class XrayAnalysis(FileReader):
 
         return spectrum
 
+    '''
+    '''
     def invertToElectronSpectrum(self, xray_spectrum, altitude=400):
         
          
@@ -248,9 +217,7 @@ class XrayAnalysis(FileReader):
         # TODO: implement cost-fnc fit method used in /AEPEX/inversion_analysis
 
         return electron_spectrum
-
-    def _exponentialDistribution(self, x, a, b):
-        return a * np.exp(-x / b)
+    '''
 
 
 

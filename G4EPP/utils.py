@@ -14,11 +14,9 @@ class EPP_Exception(Exception):
         super().__init__(self.message)
 
 class EPP_Exception_Handler(EPP_Exception):
-    def __init__(self, runList, energyDistList):
+    def __init__(self, runList):
 
         self.runList = runList
-
-        self.energyDistList = energyDistList
 
     def _validateInputs(self, energyDist, energy):
 
@@ -26,46 +24,21 @@ class EPP_Exception_Handler(EPP_Exception):
             
             raise EPP_Exception(energy, "Error: %.1f not in %s" % (energy, self.runList))
         
-        elif energyDist not in self.energyDistList:
-
-            raise EPP_Exception(energy, "Error: Distribution %s not in %s" % (energyDist, self.energyDistList))
-
 
 
 class FileReader(EPP_Exception_Handler):
-    def __init__(self, Earray, runList, PAlist, energyDistList):
+    def __init__(self, Earray, runList, PAlist):
         
         self.data_path = "../data/"
 
-        super().__init__(runList, energyDistList)
+        super().__init__(runList)
 
         # Load in pkl data table 
-        self.D = pickle.load(open(self.data_path + "G4data_mono_discretePAD_test.pkl", "rb"))
-
+        self.D = pickle.load(open(self.data_path + "G4data_mono_discretePAD_0degLat.pkl", "rb"))
 
         self.runList        = runList
         self.PAlist         = PAlist
-        self.energyDistList = energyDistList
 
-
-    def _readInData(self, energyDist, energy, dataType, pitchAngle, particle=None):
-        
-        # Select if electron, photon, or both ionization is desired
-        if particle is None:
-    
-            return self.D[('electron', dataType, energy, pitchAngle)][0] + \
-                   self.D[('photon', dataType, energy, pitchAngle)][0], \
-                   self.D[('electron', dataType, energy, pitchAngle)][1] + \
-                   self.D[('photon', dataType, energy, pitchAngle)][1]
-
-        elif particle is "electron" or particle is "photon":
-            
-            return self.D[(particle, dataType, energy, pitchAngle)][0], \
-                   self.D[(particle, dataType, energy, pitchAngle)][1]
-        
-
-        else:
-            raise ValueError("%s not an option; please select from 'electron', 'photon', or leave empty" % particle)
 
 
     def _get_ionization_table(self):
@@ -85,8 +58,76 @@ class FileReader(EPP_Exception_Handler):
         return self.D
 
 
+    def _formGreensFunctionSpectrum(self, 
+                                    energyDistribution, 
+                                    pitchAngleDistribution, 
+                                    flux,
+                                    dataType,
+                                    particle=None):
+
+        testArray = np.hstack([energyDistribution, pitchAngleDistribution])
+
+        if (np.isnan(testArray) | np.isinf(testArray)).any():
+            raise ValueError("Inf or Nan in inputs!")
+
+        # Energy array in eV for convienience
+        energyAbsc = self.runList * 1e3
+
+        # Normalize energy distribution
+        energyDistribution     /= np.trapz(energyDistribution, x=energyAbsc)
+
+        # Normalize pitch angle distribution
+        pitchAngleDistribution /= np.trapz(pitchAngleDistribution, x=np.deg2rad(self.PAlist))
+
+
+        # Compute energy flux input 
+        # Solid angle calculation
+        int1 = 2 * np.pi * np.trapz(pitchAngleDistribution * np.sin(np.deg2rad(self.PAlist)), 
+                                    x=np.deg2rad(self.PAlist))
+
+        # First moment of energy distribution
+        int2 = np.trapz(energyDistribution * energyAbsc,
+                        x=energyAbsc)
+
+        norm = flux * int1 * int2 
+
+        data = self._get_all_data()
+
+        if dataType == 'ioni':
+            result = np.zeros(500)
+        elif dataType == "spectra":
+            result = np.zeros([500, 100])
+
+
+        # TODO: make this a matrix multiplication for SPEED
+        # See documentation for explanation of divisive factors in below loop
+        for ind1, ene in enumerate(self.runList):
+            for ind2, pa in enumerate(self.PAlist):
+
+                weight = energyDistribution[ind1] * pitchAngleDistribution[ind2]
+
+                if particle is None:
+
+                    result +=  weight * (data[('electron', dataType, ene, pa)][0] + \
+                           data[('photon', dataType, ene, pa)][0]/100) \
+                           / (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * 0.035)
+
+                if particle == 'electron':
+
+                    result +=  weight * data[('electron', dataType, ene, pa)][0]  \
+                           / (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * 0.035)
+                
+                if particle == 'photon':
+
+                    result +=  weight * data[('photon', dataType, ene, pa)][0]/100 \
+                           / (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * 0.035)
+        
+        # (ioni ~ cm^-3 s^-1, spectra ~ keV cm^-2 s^-1 sr^-1 keV^-1)
+        # norm ~ eV / cm^2 / sec
+        return result, norm
+
 class EnergyDistributions:
-    def __init__(self, Nsamples):
+    def __init__(self, Nsamples=0):
         
         # Modified Bessel function for relativistic Maxwellian
         from scipy.special import kn 
@@ -108,6 +149,19 @@ class EnergyDistributions:
         # Save input data
         self.Nsamples = Nsamples
         self.samples  = np.zeros([Nsamples])
+
+    # Getter methods
+    def powerLaw(self):
+        return self.f_powerLaw
+
+    def exponential(self):
+        return self.f_exponential
+
+    def doubleMaxwellian(self):
+        return self.f_doubMaxwellian
+
+    def relativisticMaxwellian(self):
+        return self.f_relMaxwell
 
 
     def _doubleMaxwellianSampler(self, T1, T2):
