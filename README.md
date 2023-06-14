@@ -5,6 +5,7 @@ To install, run
 
 ```python 
 python pip install -m G4EPP
+```
 
 ## Example Usage
 
@@ -16,7 +17,6 @@ The following examples are simple usages of G4EPP with Juypter Notebooks.
 
 
 
-```
 ## Notes
 - The data requires about 0.5 GB free disk space.
 
