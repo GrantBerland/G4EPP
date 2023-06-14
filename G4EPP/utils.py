@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import os
 
 import pickle
 
@@ -24,7 +25,6 @@ class EPP_Exception_Handler(EPP_Exception):
             
             raise EPP_Exception(energy, "Error: %.1f not in %s" % (energy, self.runList))
         
-
 
 class FileReader(EPP_Exception_Handler):
     def __init__(self, Earray, runList, PAlist):
@@ -67,9 +67,12 @@ class FileReader(EPP_Exception_Handler):
 
         testArray = np.hstack([energyDistribution, pitchAngleDistribution])
 
-        if (np.isnan(testArray) | np.isinf(testArray)).any():
-            raise ValueError("Inf or Nan in inputs!")
+        if (np.isnan(testArray)).any():
+            raise ValueError("Nan(s) in inputs!")
 
+        if (np.isinf(testArray)).any():
+            raise ValueError("Inf(s) in inputs!")
+        
         # Energy array in eV for convienience
         energyAbsc = self.runList * 1e3
 
@@ -94,9 +97,12 @@ class FileReader(EPP_Exception_Handler):
         data = self._get_all_data()
 
         if dataType == 'ioni':
-            result = np.zeros(500)
+            result     = np.zeros(500)
+            multFactor = 0.035
+
         elif dataType == "spectra":
-            result = np.zeros([500, 100])
+            result     = np.zeros([500, 100])
+            multFactor = 1
 
 
         # TODO: make this a matrix multiplication for SPEED
@@ -106,22 +112,22 @@ class FileReader(EPP_Exception_Handler):
 
                 weight = energyDistribution[ind1] * pitchAngleDistribution[ind2]
 
+                angFactor = (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * multFactor)
+
                 if particle is None:
 
-                    result +=  weight * (data[('electron', dataType, ene, pa)][0] + \
-                           data[('photon', dataType, ene, pa)][0]/100) \
-                           / (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * 0.035)
+                    result += weight * (data[('electron', dataType, ene, pa)][0] + \
+                           data[('photon', dataType, ene, pa)][0]/100) / angFactor 
 
                 if particle == 'electron':
 
-                    result +=  weight * data[('electron', dataType, ene, pa)][0]  \
-                           / (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * 0.035)
+                    result += weight * data[('electron', dataType, ene, pa)][0] / angFactor 
                 
                 if particle == 'photon':
 
-                    result +=  weight * data[('photon', dataType, ene, pa)][0]/100 \
-                           / (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * 0.035)
-        
+                    result += weight * data[('photon', dataType, ene, pa)][0]/100 / angFactor
+
+                                   
         # (ioni ~ cm^-3 s^-1, spectra ~ keV cm^-2 s^-1 sr^-1 keV^-1)
         # norm ~ eV / cm^2 / sec
         return result, norm

@@ -3,6 +3,7 @@ build/
 dist/
 *__pycache__
 .ipynb_checkpoints
+Ma_data.ipynb
 *.pkl
 unused/
 
