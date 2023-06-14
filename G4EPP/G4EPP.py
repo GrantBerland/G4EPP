@@ -15,7 +15,7 @@ from scipy.signal import savgol_filter
 
 import pickle
 
-from utils import FileReader, EnergyDistributions
+from G4EPP.utils import FileReader
 
 # Globals
 Earray  = np.round(np.logspace(np.log10(0.250), np.log10(10000), 100), 2)
@@ -27,130 +27,6 @@ runList = np.array([10, 14, 20, 32, 50, 71, 100, 141, 200, 316, 500,
 
 PAlist  = np.arange(0, 70+5, 5);
 
-
-
-class EPP_Exception(Exception):
-    def __init__(self, issue, message="Error: "):
-        self.issue   = issue
-        self.message = message
-
-        super().__init__(self.message)
-
-class EPP_Exception_Handler(EPP_Exception):
-    def __init__(self, runList):
-
-        self.runList = runList
-
-    def _validateInputs(self, energyDist, energy):
-
-        if energy not in self.runList:
-
-            raise EPP_Exception(energy, "Error: %.1f not in %s" % (energy, self.runList))
-
-
-class FileReader(EPP_Exception_Handler):
-    def __init__(self, Earray, runList, PAlist):
-
-        self.data_path = "../data/"
-
-        super().__init__(runList)
-
-        # Load in pkl data table 
-        self.D = pickle.load(open(self.data_path + "G4data_mono_discretePAD_0degLat.pkl", "rb"))
-
-        self.runList        = runList
-        self.PAlist         = PAlist
-
-
-
-    def _get_ionization_table(self):
-
-        table = np.zeros([500, len(self.runList), len(self.PAlist)]);
-
-        for ind1, ene in enumerate(self.runList):
-            for ind2, pa in enumerate(self.PAlist):
-                table[:, ind1, ind2] = self.D[('electron', 'ioni', ene, pa)][0] + \
-                                       self.D[('photon', 'ioni', ene, pa)][0] / 100
-
-
-
-        return table
-
-    def _get_all_data(self):
-        return self.D
-
-    def _formGreensFunctionSpectrum(self,
-                                    energyDistribution,
-                                    pitchAngleDistribution,
-                                    flux,
-                                    dataType,
-                                    particle=None):
-
-        testArray = np.hstack([energyDistribution, pitchAngleDistribution])
-
-        if (np.isnan(testArray)).any():
-            raise ValueError("Nan(s) in inputs!")
-
-        if (np.isinf(testArray)).any():
-            raise ValueError("Inf(s) in inputs!")
-
-        # Energy array in eV for convienience
-        energyAbsc = self.runList * 1e3
-
-        # Normalize energy distribution
-        energyDistribution     /= np.trapz(energyDistribution, x=energyAbsc)
-
-        # Normalize pitch angle distribution
-        pitchAngleDistribution /= np.trapz(pitchAngleDistribution, x=np.deg2rad(self.PAlist))
-
-
-        # Compute energy flux input 
-        # Solid angle calculation
-        int1 = 2 * np.pi * np.trapz(pitchAngleDistribution * np.sin(np.deg2rad(self.PAlist)),
-                                    x=np.deg2rad(self.PAlist))
-
-        # First moment of energy distribution
-        int2 = np.trapz(energyDistribution * energyAbsc,
-                        x=energyAbsc)
-
-        norm = flux * int1 * int2
-
-        data = self._get_all_data()
-
-        if dataType == 'ioni':
-            result     = np.zeros(500)
-            multFactor = 0.035
-
-        elif dataType == "spectra":
-            result     = np.zeros([500, 100])
-            multFactor = 1
-
-        # TODO: make this a matrix multiplication for SPEED
-        # See documentation for explanation of divisive factors in below loop
-        for ind1, ene in enumerate(self.runList):
-            for ind2, pa in enumerate(self.PAlist):
-
-                weight = energyDistribution[ind1] * pitchAngleDistribution[ind2]
-
-                angFactor = (1e5 *  2 * np.pi * np.cos(np.deg2rad(pa)) * multFactor)
-
-                if particle is None:
-
-                    result += weight * (data[('electron', dataType, ene, pa)][0] + \
-                           data[('photon', dataType, ene, pa)][0]/100) / angFactor
-
-                if particle == 'electron':
-
-                    result += weight * data[('electron', dataType, ene, pa)][0] / angFactor
-
-                if particle == 'photon':
-
-                    result += weight * data[('photon', dataType, ene, pa)][0]/100 / angFactor
-
-
-        # (ioni ~ cm^-3 s^-1, spectra ~ keV cm^-2 s^-1 sr^-1 keV^-1)
-        # norm ~ eV / cm^2 / sec
-        return result, norm
 
 
 class api(FileReader):
@@ -170,11 +46,8 @@ class api(FileReader):
         self.runList        = runList
         self.PAlist         = PAlist
 
-
-        super().__init__(self.Earray, self.runList, self.PAlist)
-
-        self.X_energy, self.Y_altitude = np.meshgrid(self.Earray, self.h)
-
+        self.dirname = os.path.dirname(__file__)
+        
         # Check if look up table downloaded
         if self._check_if_data_present() is False:
 
@@ -182,15 +55,21 @@ class api(FileReader):
             
             # If not, download from Zenodo
             self._download_data()
+
+        super().__init__(self.Earray, self.runList, self.PAlist)
+
+
+
+        self.X_energy, self.Y_altitude = np.meshgrid(self.Earray, self.h)
+
         
 
     def _check_if_data_present(self):
         """
         Internal function to check if look up table is present
         """
-        dirname = os.path.dirname(__file__)
 
-        total_path = dirname + '/data/G4data_mono_discretePAD_0degLat.pkl'
+        total_path = self.dirname + '/data/G4data_mono_discretePAD_0degLat.pkl'
 
         return os.path.isfile(total_path)
 
@@ -198,15 +77,22 @@ class api(FileReader):
         """
         Internal function to download 
         """
-        import wget
-        
-        url = "https://zenodo.org/record/8034275/files/G4data_mono_discretePAD_0degLat.pkl?download=1"
+        import wget, sys
 
-        try:
-            wget.download(url, out='./data')
-            print("Data downloaded!")
-        except:
-            print("Couldn't download data :( contact Grant.Berland@colorado.edu and I'll email it to you")
+        os.mkdir(self.dirname + '/data')
+
+        url = "https://zenodo.org/record/8034275/files/G4data_mono_discretePAD_0degLat.pkl?download=1"
+        def bar_progress(current, total, width=80):
+            progress_message = "Downloading: %d%% [%d / %d] kB" % (current / total * 100, int(1e-3 * current), int(1e-3 * total))
+            sys.stdout.write("\r" + progress_message)
+            sys.stdout.flush()
+
+
+        #try:
+        wget.download(url, out=self.dirname + '/data', bar=bar_progress)
+        print("Data downloaded!")
+        #except:
+            #print("Couldn't download data :( contact Grant.Berland@colorado.edu and I'll email it to you")
 
     def plot_spectral_profile(self, energyDistribution, 
                                     pitchAngleDistribution, 
@@ -309,7 +195,7 @@ class api(FileReader):
         return self.binWidth
 
     def get_run_list(self):
-        return self.runList
+        return 1e3 * self.runList
 
     def get_PA_list(self):
         return self.PAlist

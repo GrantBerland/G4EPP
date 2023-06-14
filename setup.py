@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-VERSION = '0.0.4' 
+VERSION = '0.0.8' 
 DESCRIPTION = 'GEANT4 EPP Simulation wrapper'
 LONG_DESCRIPTION = 'Python wrapper to process and plot GEANT4 EPP simulation outputs'
 
@@ -12,6 +12,8 @@ setup(
         description=DESCRIPTION,
         long_description=LONG_DESCRIPTION,
         packages=find_packages(),
+        package_data={'my_pkg':['G4EPP/data/*']},
+        include_package_data=True,
         install_requires=["matplotlib", "pandas", "numpy", "scipy", "seaborn", "wget","seaborn"],  
         keywords=['python', 'EPP'],
         classifiers=[
