@@ -1,5 +1,11 @@
 # G4EPP
-A Python wrapper for processing and plotting GEANT4 energetic particle precipitation (EPP) model outputs.
+A Python wrapper for processing and plotting GEANT4 energetic particle precipitation (EPP) model outputs, from the publication *Kinetic Modeling of Radiation Belt Electrons with Geant4 to Study Energetic Particle Precipitation in Earth's Atmosphere*.
+
+
+
+[![DOI](https://zenodo.org/badge/614964713.svg)](https://zenodo.org/badge/latestdoi/614964713)
+
+
 
 To install, run 
 
