@@ -236,9 +236,12 @@ class XrayAnalysis(FileReader):
 class RadiationAnalysis:
     def __init__(self, material):
         
+        self.dirname = os.path.dirname(__file__)
+        
+        
         if material is "human":
             
-            filepath_pre  = "../data/radiationData/"
+            filepath_pre  = self.dirname + "/data/radiationData/"
             filepath_post = "_human_dose_conversion.csv"
 
             # Read in data
